@@ -1,17 +1,58 @@
-**__pycache__**
-**build**
-**egg-info**
-**dist**
-data/
-*.pyc
-venv/
-*.idea/
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
 *.so
-*.yaml
-*.sh
-*.pth
-*.pkl
+*.egg-info/
+.eggs/
+
+# Build files
+build/
+dist/
+*.egg
+
+# OpenPCDet generated files
+data/
+output/
+h200_results/
+downloads/
+*.tar.gz
+*.tgz
 *.zip
+
+# Checkpoints and model weights
+*.pth
+*.pt
+*.ckpt
+*.onnx
+
+# nuScenes / dataset generated files
+*.pkl
 *.bin
-output
-version.py
+*.json
+*.npy
+*.npz
+
+# Logs
+*.log
+logs/
+tensorboard/
+events.out.tfevents.*
+
+# IDE / OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Environment files
+.env
+.venv/
+venv/
+conda-meta/
+
+# Temporary files
+tmp/
+temp/
+*.tmp

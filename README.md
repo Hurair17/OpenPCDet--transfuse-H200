@@ -1,5 +1,16 @@
 <img src="docs/open_mmlab.png" align="right" width="30%">
 
+pip install gpustat
+
+/// Prepare OpenPCDet nuScenes info files
+python -m pcdet.datasets.nuscenes.nuscenes_dataset --func create_nuscenes_infos --cfg_file tools/cfgs/dataset_configs/nuscenes_dataset.yaml --version v1.0-trainval
+
+
+/// CUDA_VISIBLE_DEVICES=0 python train.py  --cfg_file cfgs/nuscenes_models/transfusion_lidar.yaml  --batch_size 1  --workers 2 --epochs 30
+
+
+/// CUDA_VISIBLE_DEVICES=0 python test.py --cfg_file cfgs/nuscenes_models/transfusion_lidar.yaml --batch_size 1 --workers 2 --ckpt ../output/nuscenes_models/transfusion_lidar/default/ckpt/checkpoint_epoch_2.pth --save_to_file
+
 # OpenPCDet
 
 `OpenPCDet` is a clear, simple, self-contained open source project for LiDAR-based 3D object detection. 
