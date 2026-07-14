@@ -33,11 +33,15 @@ echo "===== Patch OpenPCDet compatibility ====="
 python - <<'PY'
 from pathlib import Path
 
-# Patch old NumPy aliases.
+# Patch only the exact deprecated NumPy aliases.
+# Do not use plain string replacement here: replacing "np.int" would also
+# corrupt valid names such as np.int32 and np.int64.
+import re
+
 repls = {
-    "np.int": "int",
-    "np.float": "float",
-    "np.bool": "bool",
+    r"\bnp\.int\b": "int",
+    r"\bnp\.float\b": "float",
+    r"\bnp\.bool\b": "bool",
 }
 
 for folder in ["pcdet", "tools"]:
@@ -48,12 +52,12 @@ for folder in ["pcdet", "tools"]:
         text = p.read_text()
         new = text
 
-        for old, new_val in repls.items():
-            new = new.replace(old, new_val)
+        for pattern, replacement in repls.items():
+            new = re.sub(pattern, replacement, new)
 
         if new != text:
             p.write_text(new)
-            print("patched numpy alias:", p)
+            print("patched exact NumPy alias:", p)
 
 # Disable Argo2 import because this run is nuScenes-only.
 p = Path("pcdet/datasets/__init__.py")
@@ -193,66 +197,137 @@ PY
 
 echo "===== Download nuScenes part one ====="
 
-mkdir -p downloads
-mkdir -p data/nuscenes/v1.0-trainval
+DOWNLOAD_DIR="downloads"
+NUSC_ROOT="data/nuscenes/v1.0-trainval"
+META_ARCHIVE="$DOWNLOAD_DIR/v1.0-trainval_meta.tgz"
+BLOB01_ARCHIVE="$DOWNLOAD_DIR/v1.0-trainval01_blobs.tgz"
+META_CONTENTS="$DOWNLOAD_DIR/v1.0-trainval_meta.contents.txt"
+BLOB01_CONTENTS="$DOWNLOAD_DIR/v1.0-trainval01_blobs.contents.txt"
+
+mkdir -p "$DOWNLOAD_DIR"
+mkdir -p "$NUSC_ROOT"
 
 # Google Drive IDs.
-# First link: metadata.
-# Second link: trainval part-one blob.
+# The metadata archive contains both v1.0-trainval JSON metadata and maps/.
+# The second archive contains trainval part-one sensor blobs.
 NUSC_META_GDRIVE_ID="${NUSC_META_GDRIVE_ID:-1RhJHJPC_euONoxHPDth2IXgH8G-Tr4Ku}"
 NUSC_BLOB01_GDRIVE_ID="${NUSC_BLOB01_GDRIVE_ID:-15Gyeo7X7qelTxXPKW3z4lhEtoTkydBum}"
 
-# Maps public nuScenes link.
-NUSC_MAPS_URL="${NUSC_MAPS_URL:-https://d36yt3mvayqw5m.cloudfront.net/public/v1.0/maps.tgz}"
+# NUSC_META_GDRIVE_URL="https://drive.google.com/file/d/1RhJHJPC_euONoxHPDth2IXgH8G-Tr4Ku/view?usp=sharing"
+NUSC_META_GDRIVE_URL="https://drive.google.com/file/d/${NUSC_META_GDRIVE_ID}/view?usp=sharing"
+NUSC_BLOB01_GDRIVE_URL="https://drive.google.com/file/d/${NUSC_BLOB01_GDRIVE_ID}/view?usp=sharing"
 
 echo "Metadata Google Drive ID: $NUSC_META_GDRIVE_ID"
-echo "Blob01 Google Drive ID: $NUSC_BLOB01_GDRIVE_ID"
-echo "Maps URL: $NUSC_MAPS_URL"
+echo "Blob01 Google Drive ID:   $NUSC_BLOB01_GDRIVE_ID"
+echo "Maps source: metadata archive (no separate maps download)"
 
-echo "Downloading metadata from Google Drive..."
-gdown --id "$NUSC_META_GDRIVE_ID" -O downloads/v1.0-trainval_meta.tgz
+command -v gdown >/dev/null 2>&1 || {
+    echo "ERROR: gdown is not installed."
+    exit 1
+}
+
+command -v tar >/dev/null 2>&1 || {
+    echo "ERROR: tar is not installed."
+    exit 1
+}
+
+echo "Downloading metadata and maps from Google Drive..."
+gdown --fuzzy --continue "$NUSC_META_GDRIVE_URL" -O "$META_ARCHIVE"
 
 echo "Downloading trainval part-one blob from Google Drive..."
-gdown --id "$NUSC_BLOB01_GDRIVE_ID" -O downloads/v1.0-trainval01_blobs.tgz
-
-echo "Downloading maps from nuScenes public link..."
-curl -L -C - "$NUSC_MAPS_URL" -o downloads/maps.tgz
+gdown --fuzzy --continue "$NUSC_BLOB01_GDRIVE_URL" -O "$BLOB01_ARCHIVE"
 
 echo "===== Check downloaded archives ====="
 
-ls -lh downloads/
+ls -lh "$DOWNLOAD_DIR"
 
-file downloads/v1.0-trainval_meta.tgz
-file downloads/v1.0-trainval01_blobs.tgz
-file downloads/maps.tgz
+validate_tgz() {
+    local archive="$1"
+
+    if [[ ! -s "$archive" ]]; then
+        echo "ERROR: archive is missing or empty: $archive"
+        exit 1
+    fi
+
+    if ! tar -tzf "$archive" >/dev/null 2>&1; then
+        echo "ERROR: invalid or incomplete .tgz archive: $archive"
+        echo "Google Drive may have returned an error page or the transfer may be incomplete."
+        file "$archive" || true
+        exit 1
+    fi
+
+    echo "Valid archive: $archive"
+    file "$archive" || true
+    du -h "$archive"
+}
+
+validate_tgz "$META_ARCHIVE"
+validate_tgz "$BLOB01_ARCHIVE"
+
+# Save complete archive listings. This avoids `tar | head` failures caused by
+# SIGPIPE when the script is running with `set -o pipefail`.
+tar -tzf "$META_ARCHIVE" > "$META_CONTENTS"
+tar -tzf "$BLOB01_ARCHIVE" > "$BLOB01_CONTENTS"
 
 echo "Testing metadata archive..."
-tar -tzf downloads/v1.0-trainval_meta.tgz | head
-
-echo "Testing maps archive..."
-tar -tzf downloads/maps.tgz | head
+sed -n '1,20p' "$META_CONTENTS"
 
 echo "Testing blob01 archive..."
-tar -tzf downloads/v1.0-trainval01_blobs.tgz | head
+sed -n '1,20p' "$BLOB01_CONTENTS"
+
+if ! grep -Eq '(^|/)v1\.0-trainval/' "$META_CONTENTS"; then
+    echo "ERROR: metadata archive does not contain v1.0-trainval/."
+    exit 1
+fi
+
+if ! grep -Eq '(^|/)maps/' "$META_CONTENTS"; then
+    echo "ERROR: metadata archive does not contain maps/."
+    echo "The script will not attempt a separate maps download."
+    exit 1
+fi
+
+echo "Confirmed: maps/ is present inside the metadata archive."
 
 echo "===== Extract nuScenes ====="
 
-tar -xzf downloads/v1.0-trainval_meta.tgz -C data/nuscenes/v1.0-trainval
-tar -xzf downloads/maps.tgz -C data/nuscenes/v1.0-trainval
-tar -xzf downloads/v1.0-trainval01_blobs.tgz -C data/nuscenes/v1.0-trainval
+tar -xzf "$META_ARCHIVE" -C "$NUSC_ROOT"
+tar -xzf "$BLOB01_ARCHIVE" -C "$NUSC_ROOT"
 
 echo "===== Dataset check ====="
 
-find data/nuscenes/v1.0-trainval -maxdepth 2 -type d | sort | head -50
+required_dirs=(
+    "$NUSC_ROOT/v1.0-trainval"
+    "$NUSC_ROOT/maps"
+    "$NUSC_ROOT/samples/LIDAR_TOP"
+    "$NUSC_ROOT/sweeps/LIDAR_TOP"
+)
+
+for required_dir in "${required_dirs[@]}"; do
+    if [[ ! -d "$required_dir" ]]; then
+        echo "ERROR: expected directory was not created: $required_dir"
+        echo "Inspect $META_CONTENTS and $BLOB01_CONTENTS for unexpected nesting."
+        exit 1
+    fi
+done
+
+find "$NUSC_ROOT" -maxdepth 2 -type d | sort | sed -n '1,50p'
 
 echo "Metadata files:"
-ls data/nuscenes/v1.0-trainval/v1.0-trainval | head
+find "$NUSC_ROOT/v1.0-trainval" -maxdepth 1 -type f -printf '%f\n' | sort | sed -n '1,20p'
+
+echo "Map files:"
+find "$NUSC_ROOT/maps" -maxdepth 2 -type f -printf '%P\n' | sort | sed -n '1,20p'
 
 echo "LiDAR samples:"
-ls data/nuscenes/v1.0-trainval/samples/LIDAR_TOP | head
+find "$NUSC_ROOT/samples/LIDAR_TOP" -maxdepth 1 -type f -printf '%f\n' | sort | sed -n '1,10p'
 
 echo "LiDAR sweeps:"
-ls data/nuscenes/v1.0-trainval/sweeps/LIDAR_TOP | head
+find "$NUSC_ROOT/sweeps/LIDAR_TOP" -maxdepth 1 -type f -printf '%f\n' | sort | sed -n '1,10p'
+
+echo "Metadata JSON count: $(find "$NUSC_ROOT/v1.0-trainval" -maxdepth 1 -type f -name '*.json' | wc -l)"
+echo "Map file count:       $(find "$NUSC_ROOT/maps" -type f | wc -l)"
+echo "LiDAR sample count:   $(find "$NUSC_ROOT/samples/LIDAR_TOP" -maxdepth 1 -type f | wc -l)"
+echo "LiDAR sweep count:    $(find "$NUSC_ROOT/sweeps/LIDAR_TOP" -maxdepth 1 -type f | wc -l)"
 
 echo "===== Create nuScenes info files ====="
 
@@ -333,7 +408,7 @@ cd tools
 
 CUDA_VISIBLE_DEVICES=0 python train.py \
     --cfg_file cfgs/nuscenes_models/transfusion_lidar.yaml \
-    --batch_size 1 \
+    --batch_size 2 \
     --workers 2 \
     --epochs 2 \
     --wo_gpu_stat

@@ -11,6 +11,10 @@ python -m pcdet.datasets.nuscenes.nuscenes_dataset --func create_nuscenes_infos 
 
 /// CUDA_VISIBLE_DEVICES=0 python test.py --cfg_file cfgs/nuscenes_models/transfusion_lidar.yaml --batch_size 1 --workers 2 --ckpt ../output/nuscenes_models/transfusion_lidar/default/ckpt/checkpoint_epoch_2.pth --save_to_file
 
+
+// python install_into_openpcdet.py   /home/hurair/OpenPCDet
+
+
 # OpenPCDet
 
 `OpenPCDet` is a clear, simple, self-contained open source project for LiDAR-based 3D object detection. 
