@@ -212,7 +212,7 @@ BLOB01_CONTENTS="$DOWNLOAD_DIR/v1.0-trainval01_blobs.contents.txt"
 mkdir -p "$DOWNLOAD_DIR"
 mkdir -p "$NUSC_ROOT"
 
-HF_DATASET_REPO="YOUR_HF_USERNAME/YOUR_HF_DATASET_NAME"
+HF_DATASET_REPO="Hurair123/globe-part1"
 
 HF_META_URL="https://huggingface.co/datasets/${HF_DATASET_REPO}/resolve/main/v1.0-trainval_meta.tgz"
 HF_BLOB01_URL="https://huggingface.co/datasets/${HF_DATASET_REPO}/resolve/main/v1.0-trainval01_blobs.tgz"
