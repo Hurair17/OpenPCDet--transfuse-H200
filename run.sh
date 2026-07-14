@@ -200,7 +200,7 @@ print("OpenPCDet OK")
 print("nuScenes devkit OK")
 PY
 
-echo "===== Download nuScenes part one ====="
+echo "===== Download nuScenes part one from Hugging Face ====="
 
 DOWNLOAD_DIR="downloads"
 NUSC_ROOT="data/nuscenes/v1.0-trainval"
@@ -212,45 +212,35 @@ BLOB01_CONTENTS="$DOWNLOAD_DIR/v1.0-trainval01_blobs.contents.txt"
 mkdir -p "$DOWNLOAD_DIR"
 mkdir -p "$NUSC_ROOT"
 
-# Google Drive IDs.
-# The metadata archive contains both v1.0-trainval JSON metadata and maps/.
-# The second archive contains trainval part-one sensor blobs.
-NUSC_META_GDRIVE_ID="${NUSC_META_GDRIVE_ID:-1RhJHJPC_euONoxHPDth2IXgH8G-Tr4Ku}"
-NUSC_BLOB01_GDRIVE_ID="${NUSC_BLOB01_GDRIVE_ID:-15Gyeo7X7qelTxXPKW3z4lhEtoTkydBum}"
+HF_DATASET_REPO="YOUR_HF_USERNAME/YOUR_HF_DATASET_NAME"
 
-# NUSC_META_GDRIVE_URL="https://drive.google.com/file/d/1RhJHJPC_euONoxHPDth2IXgH8G-Tr4Ku/view?usp=sharing"
-NUSC_META_GDRIVE_URL="https://drive.google.com/file/d/${NUSC_META_GDRIVE_ID}/view?usp=sharing"
-NUSC_BLOB01_GDRIVE_URL="https://drive.google.com/file/d/${NUSC_BLOB01_GDRIVE_ID}/view?usp=sharing"
+HF_META_URL="https://huggingface.co/datasets/${HF_DATASET_REPO}/resolve/main/v1.0-trainval_meta.tgz"
+HF_BLOB01_URL="https://huggingface.co/datasets/${HF_DATASET_REPO}/resolve/main/v1.0-trainval01_blobs.tgz"
 
-echo "Metadata Google Drive ID: $NUSC_META_GDRIVE_ID"
-echo "Blob01 Google Drive ID:   $NUSC_BLOB01_GDRIVE_ID"
-echo "Maps source: metadata archive (no separate maps download)"
+echo "HF dataset repo: $HF_DATASET_REPO"
+echo "Metadata URL: $HF_META_URL"
+echo "Blob01 URL:   $HF_BLOB01_URL"
 
-command -v gdown >/dev/null 2>&1 || {
-    echo "ERROR: gdown is not installed."
-    exit 1
-}
-
-command -v tar >/dev/null 2>&1 || {
-    echo "ERROR: tar is not installed."
-    exit 1
-}
-
-download_gdrive_file() {
-    local file_id="$1"
+download_url() {
+    local url="$1"
     local output_path="$2"
 
-    echo "Downloading Google Drive file ID: $file_id"
-    echo "Output: $output_path"
+    echo "Downloading:"
+    echo "$url"
+    echo "to:"
+    echo "$output_path"
 
-    gdown --continue "https://drive.google.com/uc?id=${file_id}" -O "$output_path"
+    if command -v wget >/dev/null 2>&1; then
+        wget -c "$url" -O "$output_path"
+    else
+        curl -L --retry 5 -C - "$url" -o "$output_path"
+    fi
 }
 
-echo "Downloading metadata and maps from Google Drive..."
-download_gdrive_file "$NUSC_META_GDRIVE_ID" "$META_ARCHIVE"
+download_url "$HF_META_URL" "$META_ARCHIVE"
+download_url "$HF_BLOB01_URL" "$BLOB01_ARCHIVE"
 
-echo "Downloading trainval part-one blob from Google Drive..."
-download_gdrive_file "$NUSC_BLOB01_GDRIVE_ID" "$BLOB01_ARCHIVE"
+
 
 echo "===== Check downloaded archives ====="
 
