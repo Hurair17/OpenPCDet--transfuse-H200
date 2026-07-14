@@ -23,8 +23,10 @@ pip install "setuptools<82" wheel
 
 pip uninstall -y opencv-python opencv-contrib-python opencv-contrib-python-headless || true
 
-pip install numpy==1.26.4 opencv-python-headless==4.11.0.86
-pip install nuscenes-devkit pyyaml easydict tqdm tensorboardX scikit-learn SharedArray gpustat gdown
+python -m pip install numpy==1.26.4 opencv-python-headless==4.11.0.86
+python -m pip install scipy numba pyyaml easydict tqdm tensorboardX scikit-learn SharedArray gpustat gdown
+python -m pip install scikit-image==0.21.0
+python -m pip install nuscenes-devkit==1.0.5
 
 pip install spconv-cu120 || pip install spconv-cu121 || pip install spconv-cu118
 
@@ -169,7 +171,10 @@ else:
 PY
 
 echo "===== Build OpenPCDet ====="
-python setup.py develop
+# python setup.py develop
+rm -rf build *.egg-info pcdet.egg-info
+
+python setup.py develop --no-deps
 
 echo "===== Import test ====="
 
@@ -410,7 +415,7 @@ CUDA_VISIBLE_DEVICES=0 python train.py \
     --cfg_file cfgs/nuscenes_models/transfusion_lidar.yaml \
     --batch_size 2 \
     --workers 2 \
-    --epochs 2 \
+    --epochs 20 \
     --wo_gpu_stat
 
 cd ..
