@@ -30,6 +30,51 @@ python -m pip install nuscenes-devkit==1.0.5
 python -m pip install --force-reinstall --no-cache-dir numpy==1.26.4 opencv-python-headless==4.11.0.86
 pip install spconv-cu120 || pip install spconv-cu121 || pip install spconv-cu118
 
+echo "===== Patch nuScenes devkit NumPy aliases ====="
+
+python - <<'PY'
+from pathlib import Path
+import inspect
+import re
+import nuscenes
+
+root = Path(inspect.getfile(nuscenes)).parent
+print("nuScenes package root:", root)
+
+repls = {
+    r"\bnp\.float\b": "float",
+    r"\bnp\.int\b": "int",
+    r"\bnp\.bool\b": "bool",
+}
+
+patched = []
+
+for p in root.rglob("*.py"):
+    text = p.read_text()
+    new = text
+
+    for pattern, replacement in repls.items():
+        new = re.sub(pattern, replacement, new)
+
+    if new != text:
+        p.write_text(new)
+        patched.append(str(p))
+
+print("Patched nuScenes files:")
+for p in patched:
+    print("  ", p)
+
+if not patched:
+    print("No deprecated NumPy aliases found in nuScenes package.")
+PY
+
+
+
+
+
+
+
+
 echo "===== Patch OpenPCDet compatibility ====="
 
 python - <<'PY'
