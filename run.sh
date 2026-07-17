@@ -459,7 +459,7 @@ cd tools
 CUDA_VISIBLE_DEVICES=0 python train.py \
     --cfg_file cfgs/nuscenes_models/transfusion_lidar.yaml \
     --batch_size 2 \
-    --workers 2 \
+    --workers 1 \
     --epochs 20 \
     --wo_gpu_stat
 
