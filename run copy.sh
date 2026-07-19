@@ -23,12 +23,57 @@ pip install "setuptools<82" wheel
 
 pip uninstall -y opencv-python opencv-contrib-python opencv-contrib-python-headless || true
 
-python -m pip install numpy==1.26.4 opencv-python-headless==4.11.0.86
+
 python -m pip install scipy numba pyyaml easydict tqdm tensorboardX scikit-learn SharedArray gpustat gdown
 python -m pip install scikit-image==0.21.0
 python -m pip install nuscenes-devkit==1.0.5
-
+python -m pip install --force-reinstall --no-cache-dir numpy==1.26.4 opencv-python-headless==4.11.0.86
 pip install spconv-cu120 || pip install spconv-cu121 || pip install spconv-cu118
+
+echo "===== Patch nuScenes devkit NumPy aliases ====="
+
+python - <<'PY'
+from pathlib import Path
+import inspect
+import re
+import nuscenes
+
+root = Path(inspect.getfile(nuscenes)).parent
+print("nuScenes package root:", root)
+
+repls = {
+    r"\bnp\.float\b": "float",
+    r"\bnp\.int\b": "int",
+    r"\bnp\.bool\b": "bool",
+}
+
+patched = []
+
+for p in root.rglob("*.py"):
+    text = p.read_text()
+    new = text
+
+    for pattern, replacement in repls.items():
+        new = re.sub(pattern, replacement, new)
+
+    if new != text:
+        p.write_text(new)
+        patched.append(str(p))
+
+print("Patched nuScenes files:")
+for p in patched:
+    print("  ", p)
+
+if not patched:
+    print("No deprecated NumPy aliases found in nuScenes package.")
+PY
+
+
+
+
+
+
+
 
 echo "===== Patch OpenPCDet compatibility ====="
 
@@ -200,7 +245,7 @@ print("OpenPCDet OK")
 print("nuScenes devkit OK")
 PY
 
-echo "===== Download nuScenes part one ====="
+echo "===== Download nuScenes part one from Hugging Face ====="
 
 DOWNLOAD_DIR="downloads"
 NUSC_ROOT="data/nuscenes/v1.0-trainval"
@@ -212,35 +257,35 @@ BLOB01_CONTENTS="$DOWNLOAD_DIR/v1.0-trainval01_blobs.contents.txt"
 mkdir -p "$DOWNLOAD_DIR"
 mkdir -p "$NUSC_ROOT"
 
-# Google Drive IDs.
-# The metadata archive contains both v1.0-trainval JSON metadata and maps/.
-# The second archive contains trainval part-one sensor blobs.
-NUSC_META_GDRIVE_ID="${NUSC_META_GDRIVE_ID:-1RhJHJPC_euONoxHPDth2IXgH8G-Tr4Ku}"
-NUSC_BLOB01_GDRIVE_ID="${NUSC_BLOB01_GDRIVE_ID:-15Gyeo7X7qelTxXPKW3z4lhEtoTkydBum}"
+HF_DATASET_REPO="Hurair123/globe-part1"
 
-# NUSC_META_GDRIVE_URL="https://drive.google.com/file/d/1RhJHJPC_euONoxHPDth2IXgH8G-Tr4Ku/view?usp=sharing"
-NUSC_META_GDRIVE_URL="https://drive.google.com/file/d/${NUSC_META_GDRIVE_ID}/view?usp=sharing"
-NUSC_BLOB01_GDRIVE_URL="https://drive.google.com/file/d/${NUSC_BLOB01_GDRIVE_ID}/view?usp=sharing"
+HF_META_URL="https://huggingface.co/datasets/${HF_DATASET_REPO}/resolve/main/v1.0-trainval_meta.tgz"
+HF_BLOB01_URL="https://huggingface.co/datasets/${HF_DATASET_REPO}/resolve/main/v1.0-trainval01_blobs.tgz"
 
-echo "Metadata Google Drive ID: $NUSC_META_GDRIVE_ID"
-echo "Blob01 Google Drive ID:   $NUSC_BLOB01_GDRIVE_ID"
-echo "Maps source: metadata archive (no separate maps download)"
+echo "HF dataset repo: $HF_DATASET_REPO"
+echo "Metadata URL: $HF_META_URL"
+echo "Blob01 URL:   $HF_BLOB01_URL"
 
-command -v gdown >/dev/null 2>&1 || {
-    echo "ERROR: gdown is not installed."
-    exit 1
+download_url() {
+    local url="$1"
+    local output_path="$2"
+
+    echo "Downloading:"
+    echo "$url"
+    echo "to:"
+    echo "$output_path"
+
+    if command -v wget >/dev/null 2>&1; then
+        wget -c "$url" -O "$output_path"
+    else
+        curl -L --retry 5 -C - "$url" -o "$output_path"
+    fi
 }
 
-command -v tar >/dev/null 2>&1 || {
-    echo "ERROR: tar is not installed."
-    exit 1
-}
+download_url "$HF_META_URL" "$META_ARCHIVE"
+download_url "$HF_BLOB01_URL" "$BLOB01_ARCHIVE"
 
-echo "Downloading metadata and maps from Google Drive..."
-gdown --fuzzy --continue "$NUSC_META_GDRIVE_URL" -O "$META_ARCHIVE"
 
-echo "Downloading trainval part-one blob from Google Drive..."
-gdown --fuzzy --continue "$NUSC_BLOB01_GDRIVE_URL" -O "$BLOB01_ARCHIVE"
 
 echo "===== Check downloaded archives ====="
 
@@ -413,9 +458,9 @@ cd tools
 
 CUDA_VISIBLE_DEVICES=0 python train.py \
     --cfg_file cfgs/nuscenes_models/transfusion_lidar.yaml \
-    --batch_size 2 \
-    --workers 2 \
-    --epochs 20 \
+    --batch_size 1 \
+    --workers 4 \
+    --epochs 30 \
     --wo_gpu_stat
 
 cd ..

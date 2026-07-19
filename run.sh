@@ -245,79 +245,64 @@ print("OpenPCDet OK")
 print("nuScenes devkit OK")
 PY
 
-echo "===== Download nuScenes part one from Hugging Face ====="
+echo "===== Use existing nuScenes dataset on H200 server ====="
 
-DOWNLOAD_DIR="downloads"
-NUSC_ROOT="data/nuscenes/v1.0-trainval"
-META_ARCHIVE="$DOWNLOAD_DIR/v1.0-trainval_meta.tgz"
-BLOB01_ARCHIVE="$DOWNLOAD_DIR/v1.0-trainval01_blobs.tgz"
-META_CONTENTS="$DOWNLOAD_DIR/v1.0-trainval_meta.contents.txt"
-BLOB01_CONTENTS="$DOWNLOAD_DIR/v1.0-trainval01_blobs.contents.txt"
+# Use the actual server path.
+# You wrote /app/data/nuscense/maps, so the dataset root is probably /app/data/nuscense.
+REMOTE_NUSC_ROOT="${REMOTE_NUSC_ROOT:-/app/data/nuscense}"
 
-mkdir -p "$DOWNLOAD_DIR"
-mkdir -p "$NUSC_ROOT"
+# OpenPCDet expects:
+# data/nuscenes/v1.0-trainval/
+#   ├── maps
+#   ├── samples
+#   ├── sweeps
+#   └── v1.0-trainval
+LOCAL_NUSC_PARENT="data/nuscenes"
+LOCAL_NUSC_ROOT="${LOCAL_NUSC_PARENT}/v1.0-trainval"
 
-HF_DATASET_REPO="Hurair123/globe-part1"
+mkdir -p "$LOCAL_NUSC_PARENT"
 
-HF_META_URL="https://huggingface.co/datasets/${HF_DATASET_REPO}/resolve/main/v1.0-trainval_meta.tgz"
-HF_BLOB01_URL="https://huggingface.co/datasets/${HF_DATASET_REPO}/resolve/main/v1.0-trainval01_blobs.tgz"
+echo "REMOTE_NUSC_ROOT=$REMOTE_NUSC_ROOT"
+echo "LOCAL_NUSC_ROOT=$LOCAL_NUSC_ROOT"
 
-echo "HF dataset repo: $HF_DATASET_REPO"
-echo "Metadata URL: $HF_META_URL"
-echo "Blob01 URL:   $HF_BLOB01_URL"
+# Case 1: remote path is already the nuScenes version root:
+# /app/data/nuscense/maps
+# /app/data/nuscense/samples
+# /app/data/nuscense/sweeps
+# /app/data/nuscense/v1.0-trainval
+if [[ -d "$REMOTE_NUSC_ROOT/maps" && \
+      -d "$REMOTE_NUSC_ROOT/samples" && \
+      -d "$REMOTE_NUSC_ROOT/sweeps" && \
+      -d "$REMOTE_NUSC_ROOT/v1.0-trainval" ]]; then
 
-download_url() {
-    local url="$1"
-    local output_path="$2"
+    rm -rf "$LOCAL_NUSC_ROOT"
+    ln -s "$REMOTE_NUSC_ROOT" "$LOCAL_NUSC_ROOT"
 
-    echo "Downloading:"
-    echo "$url"
-    echo "to:"
-    echo "$output_path"
+# Case 2: remote path contains v1.0-trainval as a subfolder:
+# /app/data/nuscense/v1.0-trainval/maps
+# /app/data/nuscense/v1.0-trainval/samples
+# /app/data/nuscense/v1.0-trainval/sweeps
+elif [[ -d "$REMOTE_NUSC_ROOT/v1.0-trainval/maps" && \
+        -d "$REMOTE_NUSC_ROOT/v1.0-trainval/samples" && \
+        -d "$REMOTE_NUSC_ROOT/v1.0-trainval/sweeps" ]]; then
 
-    if command -v wget >/dev/null 2>&1; then
-        wget -c "$url" -O "$output_path"
-    else
-        curl -L --retry 5 -C - "$url" -o "$output_path"
-    fi
-}
+    rm -rf "$LOCAL_NUSC_ROOT"
+    ln -s "$REMOTE_NUSC_ROOT/v1.0-trainval" "$LOCAL_NUSC_ROOT"
 
-download_url "$HF_META_URL" "$META_ARCHIVE"
-download_url "$HF_BLOB01_URL" "$BLOB01_ARCHIVE"
-
-
-
-echo "===== Check downloaded archives ====="
-
-ls -lh "$DOWNLOAD_DIR"
-
-validate_tgz() {
-    local archive="$1"
-
-    if [[ ! -s "$archive" ]]; then
-        echo "ERROR: archive is missing or empty: $archive"
-        exit 1
-    fi
-
-    if ! tar -tzf "$archive" >/dev/null 2>&1; then
-        echo "ERROR: invalid or incomplete .tgz archive: $archive"
-        echo "Google Drive may have returned an error page or the transfer may be incomplete."
-        file "$archive" || true
-        exit 1
-    fi
-
-    echo "Valid archive: $archive"
-    file "$archive" || true
-    du -h "$archive"
-}
-
-validate_tgz "$META_ARCHIVE"
-validate_tgz "$BLOB01_ARCHIVE"
-
-# Save complete archive listings. This avoids `tar | head` failures caused by
-# SIGPIPE when the script is running with `set -o pipefail`.
-tar -tzf "$META_ARCHIVE" > "$META_CONTENTS"
-tar -tzf "$BLOB01_ARCHIVE" > "$BLOB01_CONTENTS"
+else
+    echo "ERROR: Could not find valid nuScenes structure under $REMOTE_NUSC_ROOT"
+    echo "Expected one of:"
+    echo "  $REMOTE_NUSC_ROOT/maps"
+    echo "  $REMOTE_NUSC_ROOT/samples"
+    echo "  $REMOTE_NUSC_ROOT/sweeps"
+    echo "  $REMOTE_NUSC_ROOT/v1.0-trainval"
+    echo ""
+    echo "or:"
+    echo "  $REMOTE_NUSC_ROOT/v1.0-trainval/maps"
+    echo "  $REMOTE_NUSC_ROOT/v1.0-trainval/samples"
+    echo "  $REMOTE_NUSC_ROOT/v1.0-trainval/sweeps"
+    exit 1
+fi
 
 echo "Testing metadata archive..."
 sed -n '1,20p' "$META_CONTENTS"
@@ -473,7 +458,7 @@ cp -r output h200_results/ || true
 cp -r data/nuscenes/v1.0-trainval/*.pkl h200_results/ || true
 
 if [ -f output/nuscenes_models/transfusion_lidar/default/eval/epoch_2/val/default/final_result/data/results_nusc.json ]; then
-    cp output/nuscenes_models/transfusion_lidar/default/eval/epoch_2/val/default/final_result/data/results_nusc.json h200_results/ || true
+    cp output/nuscenes_models/transfusion_lidar/default/eval/epoch_30/val/default/final_result/data/results_nusc.json h200_results/ || true
 fi
 
 tar -czf h200_transfusion_part1_results.tar.gz h200_results

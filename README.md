@@ -6,15 +6,27 @@ pip install gpustat
 python -m pcdet.datasets.nuscenes.nuscenes_dataset --func create_nuscenes_infos --cfg_file tools/cfgs/dataset_configs/nuscenes_dataset.yaml --version v1.0-trainval
 
 
-/// CUDA_VISIBLE_DEVICES=0 python train.py  --cfg_file cfgs/nuscenes_models/transfusion_lidar.yaml  --batch_size 1  --workers 2 --epochs 30
 
 
-/// CUDA_VISIBLE_DEVICES=0 python test.py --cfg_file cfgs/nuscenes_models/transfusion_lidar.yaml --batch_size 1 --workers 2 --ckpt ../output/nuscenes_models/transfusion_lidar/default/ckpt/checkpoint_epoch_2.pth --save_to_file
+python train.py \
+  --cfg_file cfgs/nuscenes_models/transfusion_lidar.yaml \
+  --batch_size 1 \
+  --workers 4 \
+  --extra_tag transfusion_lidar_3d
 
 
-// python install_into_openpcdet.py   /home/hurair/OpenPCDet
+python train.py \
+    --cfg_file cfgs/nuscenes_models/cbgs_voxel0075_voxelnext.yaml \
+    --batch_size 2 \
+    --workers 4 \
+    --extra_tag voxelnext_nuscenes
 
 
+python train.py \
+    --cfg_file cfgs/nuscenes_models/cbgs_voxel0075_res3d_centerpoint.yaml \
+    --batch_size 2 \
+    --workers 4 \
+    --extra_tag centerpoint_nuscenes
 # OpenPCDet
 
 `OpenPCDet` is a clear, simple, self-contained open source project for LiDAR-based 3D object detection. 
