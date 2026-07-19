@@ -311,7 +311,13 @@ fi
 echo "Found nuScenes root: $FOUND_NUSC_ROOT"
 
 rm -rf "$LOCAL_NUSC_ROOT"
-ln -s "$FOUND_NUSC_ROOT" "$LOCAL_NUSC_ROOT"
+mkdir -p "$LOCAL_NUSC_ROOT"
+
+# Link read-only dataset contents into a writable local nuScenes root.
+ln -s "$FOUND_NUSC_ROOT/maps" "$LOCAL_NUSC_ROOT/maps"
+ln -s "$FOUND_NUSC_ROOT/samples" "$LOCAL_NUSC_ROOT/samples"
+ln -s "$FOUND_NUSC_ROOT/sweeps" "$LOCAL_NUSC_ROOT/sweeps"
+ln -s "$FOUND_NUSC_ROOT/v1.0-trainval" "$LOCAL_NUSC_ROOT/v1.0-trainval"
 
 NUSC_ROOT="$LOCAL_NUSC_ROOT"
 
@@ -358,7 +364,9 @@ echo "Metadata JSON count: $(find "$NUSC_ROOT/v1.0-trainval" -maxdepth 1 -type f
 echo "Map file count:       $(find "$NUSC_ROOT/maps" -type f | wc -l)"
 echo "LiDAR sample count:   $(find "$NUSC_ROOT/samples/LIDAR_TOP" -maxdepth 1 -type f | wc -l)"
 echo "LiDAR sweep count:    $(find "$NUSC_ROOT/sweeps/LIDAR_TOP" -maxdepth 1 -type f | wc -l)"
-
+rm -f "$NUSC_ROOT"/nuscenes_infos_*.pkl
+rm -f "$NUSC_ROOT"/nuscenes_dbinfos_*.pkl
+rm -f "$NUSC_ROOT"/*.pkl.full_backup
 echo "===== Create nuScenes info files ====="
 
 python -m pcdet.datasets.nuscenes.nuscenes_dataset \
