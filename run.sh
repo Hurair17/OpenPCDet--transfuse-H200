@@ -245,88 +245,79 @@ print("OpenPCDet OK")
 print("nuScenes devkit OK")
 PY
 
+
+echo "===== Debug /app/data dataset paths ====="
+
+echo "Listing /app:"
+ls -lah /app || true
+
+echo "Listing /app/data:"
+ls -lah /app/data || true
+
+echo "Searching for nuScenes-like folders:"
+find /app -maxdepth 4 -type d \( \
+    -name "nuscenes" -o \
+    -name "nuscense" -o \
+    -name "nuScenes" -o \
+    -name "v1.0-trainval" -o \
+    -name "samples" -o \
+    -name "sweeps" -o \
+    -name "maps" \
+\) 2>/dev/null | sort | sed -n '1,100p'
+
+
 echo "===== Use existing nuScenes dataset on H200 server ====="
 
-# Use the actual server path.
-# You wrote /app/data/nuscense/maps, so the dataset root is probably /app/data/nuscense.
-REMOTE_NUSC_ROOT="${REMOTE_NUSC_ROOT:-/app/data/nuscense}"
-
-# OpenPCDet expects:
-# data/nuscenes/v1.0-trainval/
-#   ├── maps
-#   ├── samples
-#   ├── sweeps
-#   └── v1.0-trainval
 LOCAL_NUSC_PARENT="data/nuscenes"
 LOCAL_NUSC_ROOT="${LOCAL_NUSC_PARENT}/v1.0-trainval"
-
 mkdir -p "$LOCAL_NUSC_PARENT"
 
-echo "REMOTE_NUSC_ROOT=$REMOTE_NUSC_ROOT"
-echo "LOCAL_NUSC_ROOT=$LOCAL_NUSC_ROOT"
+CANDIDATE_ROOTS=(
+    "/app/data/nuscenes"
+    "/app/data/nuscense"
+    "/app/data/nuScenes"
+    "/app/data/nuscenes/v1.0-trainval"
+    "/app/data/nuscense/v1.0-trainval"
+    "/app/data/nuScenes/v1.0-trainval"
+)
 
-# Case 1: remote path is already the nuScenes version root:
-# /app/data/nuscense/maps
-# /app/data/nuscense/samples
-# /app/data/nuscense/sweeps
-# /app/data/nuscense/v1.0-trainval
-if [[ -d "$REMOTE_NUSC_ROOT/maps" && \
-      -d "$REMOTE_NUSC_ROOT/samples" && \
-      -d "$REMOTE_NUSC_ROOT/sweeps" && \
-      -d "$REMOTE_NUSC_ROOT/v1.0-trainval" ]]; then
+FOUND_NUSC_ROOT=""
 
-    rm -rf "$LOCAL_NUSC_ROOT"
-    ln -s "$REMOTE_NUSC_ROOT" "$LOCAL_NUSC_ROOT"
+for candidate in "${CANDIDATE_ROOTS[@]}"; do
+    echo "Checking candidate: $candidate"
 
-# Case 2: remote path contains v1.0-trainval as a subfolder:
-# /app/data/nuscense/v1.0-trainval/maps
-# /app/data/nuscense/v1.0-trainval/samples
-# /app/data/nuscense/v1.0-trainval/sweeps
-elif [[ -d "$REMOTE_NUSC_ROOT/v1.0-trainval/maps" && \
-        -d "$REMOTE_NUSC_ROOT/v1.0-trainval/samples" && \
-        -d "$REMOTE_NUSC_ROOT/v1.0-trainval/sweeps" ]]; then
+    if [[ -d "$candidate/maps" && \
+          -d "$candidate/samples" && \
+          -d "$candidate/sweeps" && \
+          -d "$candidate/v1.0-trainval" ]]; then
+        FOUND_NUSC_ROOT="$candidate"
+        break
+    fi
+done
 
-    rm -rf "$LOCAL_NUSC_ROOT"
-    ln -s "$REMOTE_NUSC_ROOT/v1.0-trainval" "$LOCAL_NUSC_ROOT"
-
-else
-    echo "ERROR: Could not find valid nuScenes structure under $REMOTE_NUSC_ROOT"
-    echo "Expected one of:"
-    echo "  $REMOTE_NUSC_ROOT/maps"
-    echo "  $REMOTE_NUSC_ROOT/samples"
-    echo "  $REMOTE_NUSC_ROOT/sweeps"
-    echo "  $REMOTE_NUSC_ROOT/v1.0-trainval"
+if [[ -z "$FOUND_NUSC_ROOT" ]]; then
+    echo "ERROR: Could not auto-detect nuScenes dataset."
+    echo "Expected structure:"
+    echo "  ROOT/maps"
+    echo "  ROOT/samples"
+    echo "  ROOT/sweeps"
+    echo "  ROOT/v1.0-trainval"
     echo ""
-    echo "or:"
-    echo "  $REMOTE_NUSC_ROOT/v1.0-trainval/maps"
-    echo "  $REMOTE_NUSC_ROOT/v1.0-trainval/samples"
-    echo "  $REMOTE_NUSC_ROOT/v1.0-trainval/sweeps"
+    echo "Available folders under /app/data:"
+    find /app/data -maxdepth 4 -type d 2>/dev/null | sort | sed -n '1,200p'
     exit 1
 fi
 
-echo "Testing metadata archive..."
-sed -n '1,20p' "$META_CONTENTS"
+echo "Found nuScenes root: $FOUND_NUSC_ROOT"
 
-echo "Testing blob01 archive..."
-sed -n '1,20p' "$BLOB01_CONTENTS"
+rm -rf "$LOCAL_NUSC_ROOT"
+ln -s "$FOUND_NUSC_ROOT" "$LOCAL_NUSC_ROOT"
 
-if ! grep -Eq '(^|/)v1\.0-trainval/' "$META_CONTENTS"; then
-    echo "ERROR: metadata archive does not contain v1.0-trainval/."
-    exit 1
-fi
+NUSC_ROOT="$LOCAL_NUSC_ROOT"
 
-if ! grep -Eq '(^|/)maps/' "$META_CONTENTS"; then
-    echo "ERROR: metadata archive does not contain maps/."
-    echo "The script will not attempt a separate maps download."
-    exit 1
-fi
-
-echo "Confirmed: maps/ is present inside the metadata archive."
-
-echo "===== Extract nuScenes ====="
-
-tar -xzf "$META_ARCHIVE" -C "$NUSC_ROOT"
-tar -xzf "$BLOB01_ARCHIVE" -C "$NUSC_ROOT"
+echo "Created symlink:"
+ls -lah "$LOCAL_NUSC_PARENT"
+ls -lah "$NUSC_ROOT"
 
 echo "===== Dataset check ====="
 
@@ -339,8 +330,12 @@ required_dirs=(
 
 for required_dir in "${required_dirs[@]}"; do
     if [[ ! -d "$required_dir" ]]; then
-        echo "ERROR: expected directory was not created: $required_dir"
-        echo "Inspect $META_CONTENTS and $BLOB01_CONTENTS for unexpected nesting."
+        echo "ERROR: expected directory was not found: $required_dir"
+        echo "Detected nuScenes root: $FOUND_NUSC_ROOT"
+        echo "Current local symlink:"
+        ls -lah "$LOCAL_NUSC_PARENT" || true
+        echo "Available folders:"
+        find "$FOUND_NUSC_ROOT" -maxdepth 3 -type d 2>/dev/null | sort | sed -n '1,120p'
         exit 1
     fi
 done
@@ -457,10 +452,16 @@ mkdir -p h200_results
 cp -r output h200_results/ || true
 cp -r data/nuscenes/v1.0-trainval/*.pkl h200_results/ || true
 
-if [ -f output/nuscenes_models/transfusion_lidar/default/eval/epoch_2/val/default/final_result/data/results_nusc.json ]; then
-    cp output/nuscenes_models/transfusion_lidar/default/eval/epoch_30/val/default/final_result/data/results_nusc.json h200_results/ || true
-fi
+RESULT_JSON="output/nuscenes_models/transfusion_lidar/default/eval/eval_with_train/epoch_30/val/final_result/data/results_nusc.json"
 
+if [ -f "$RESULT_JSON" ]; then
+    cp "$RESULT_JSON" h200_results/ || true
+else
+    echo "WARNING: results_nusc.json not found at expected path:"
+    echo "$RESULT_JSON"
+    echo "Searching output directory:"
+    find output -name "results_nusc.json" -type f 2>/dev/null | sort || true
+fi
 tar -czf h200_transfusion_part1_results.tar.gz h200_results
 
 echo "DONE: h200_transfusion_part1_results.tar.gz"
