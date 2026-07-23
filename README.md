@@ -8,25 +8,15 @@ python -m pcdet.datasets.nuscenes.nuscenes_dataset --func create_nuscenes_infos 
 
 
 
-python train.py \
-  --cfg_file cfgs/nuscenes_models/transfusion_lidar.yaml \
-  --batch_size 1 \
-  --workers 4 \
-  --extra_tag transfusion_lidar_3d
+
+python train.py     --cfg_file cfgs/nuscenes_models/transfusion_lidar.yaml     --batch_size 1     --epochs 30     --wo_gpu_stat
 
 
-python train.py \
-    --cfg_file cfgs/nuscenes_models/cbgs_voxel0075_voxelnext.yaml \
-    --batch_size 2 \
-    --workers 4 \
-    --extra_tag voxelnext_nuscenes
+python train.py     --cfg_file cfgs/nuscenes_models/cbgs_voxel0075_voxelnext.yaml     --batch_size 1     --epochs 30     --wo_gpu_stat
 
 
-python train.py \
-    --cfg_file cfgs/nuscenes_models/cbgs_voxel0075_res3d_centerpoint.yaml \
-    --batch_size 2 \
-    --workers 4 \
-    --extra_tag centerpoint_nuscenes
+python train.py     --cfg_file cfgs/nuscenes_models/cbgs_voxel0075_res3d_centerpoint.yaml     --batch_size 1     --epochs 30     --wo_gpu_stat
+
 # OpenPCDet
 
 `OpenPCDet` is a clear, simple, self-contained open source project for LiDAR-based 3D object detection. 

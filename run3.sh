@@ -223,39 +223,21 @@ python setup.py develop --no-deps
 
 echo "===== Import test ====="
 
-python - <<'PY'
-import numpy
-import cv2
-import torch
-import spconv
-import pcdet
-import nuscenes
+echo "===== Prepare nuScenes using mounted raw data + precomputed GT database ====="
 
-print("NumPy:", numpy.__version__)
-print("OpenCV:", cv2.__version__)
-print("Torch:", torch.__version__)
-print("Torch CUDA:", torch.version.cuda)
-print("CUDA available:", torch.cuda.is_available())
+DOWNLOAD_DIR="downloads"
+LOCAL_NUSC_PARENT="data/nuscenes"
+LOCAL_NUSC_ROOT="${LOCAL_NUSC_PARENT}/v1.0-trainval"
 
-if torch.cuda.is_available():
-    print("GPU:", torch.cuda.get_device_name(0))
+mkdir -p "$DOWNLOAD_DIR"
+mkdir -p "$LOCAL_NUSC_PARENT"
 
-print("spconv OK")
-print("OpenPCDet OK")
-print("nuScenes devkit OK")
-PY
-
-
-echo "===== Debug /app/data dataset paths ====="
-
-echo "Listing /app:"
+echo "===== Debug /app/data ====="
 ls -lah /app || true
-
-echo "Listing /app/data:"
 ls -lah /app/data || true
 
 echo "Searching for nuScenes-like folders:"
-find /app -maxdepth 4 -type d \( \
+find /app -maxdepth 5 -type d \( \
     -name "nuscenes" -o \
     -name "nuscense" -o \
     -name "nuScenes" -o \
@@ -263,14 +245,7 @@ find /app -maxdepth 4 -type d \( \
     -name "samples" -o \
     -name "sweeps" -o \
     -name "maps" \
-\) 2>/dev/null | sort | sed -n '1,100p'
-
-
-echo "===== Use existing nuScenes dataset on H200 server ====="
-
-LOCAL_NUSC_PARENT="data/nuscenes"
-LOCAL_NUSC_ROOT="${LOCAL_NUSC_PARENT}/v1.0-trainval"
-mkdir -p "$LOCAL_NUSC_PARENT"
+\) 2>/dev/null | sort | sed -n '1,150p'
 
 CANDIDATE_ROOTS=(
     "/app/data/nuscenes"
@@ -296,159 +271,143 @@ for candidate in "${CANDIDATE_ROOTS[@]}"; do
 done
 
 if [[ -z "$FOUND_NUSC_ROOT" ]]; then
-    echo "ERROR: Could not auto-detect nuScenes dataset."
-    echo "Expected structure:"
+    echo "ERROR: Could not find mounted nuScenes raw dataset."
+    echo "Expected:"
     echo "  ROOT/maps"
     echo "  ROOT/samples"
     echo "  ROOT/sweeps"
     echo "  ROOT/v1.0-trainval"
-    echo ""
-    echo "Available folders under /app/data:"
-    find /app/data -maxdepth 4 -type d 2>/dev/null | sort | sed -n '1,200p'
+    find /app/data -maxdepth 5 -type d 2>/dev/null | sort | sed -n '1,200p'
     exit 1
 fi
 
-echo "Found nuScenes root: $FOUND_NUSC_ROOT"
+echo "Found raw nuScenes root: $FOUND_NUSC_ROOT"
 
+# Create writable local root. Do NOT symlink the whole root,
+# because OpenPCDet writes .pkl files into this folder.
 rm -rf "$LOCAL_NUSC_ROOT"
 mkdir -p "$LOCAL_NUSC_ROOT"
 
-# Link read-only dataset contents into a writable local nuScenes root.
 ln -s "$FOUND_NUSC_ROOT/maps" "$LOCAL_NUSC_ROOT/maps"
 ln -s "$FOUND_NUSC_ROOT/samples" "$LOCAL_NUSC_ROOT/samples"
 ln -s "$FOUND_NUSC_ROOT/sweeps" "$LOCAL_NUSC_ROOT/sweeps"
 ln -s "$FOUND_NUSC_ROOT/v1.0-trainval" "$LOCAL_NUSC_ROOT/v1.0-trainval"
 
-NUSC_ROOT="$LOCAL_NUSC_ROOT"
+echo "Local writable nuScenes root:"
+ls -lah "$LOCAL_NUSC_ROOT"
 
-echo "Created symlink:"
-ls -lah "$LOCAL_NUSC_PARENT"
-ls -lah "$NUSC_ROOT"
+echo "===== Download precomputed nuScenes info/GT database from Google Drive ====="
+
+PRECOMP_GDRIVE_ID="1cl5bMmNG-12qAqXXnXrYe8csisC_NexI"
+PRECOMP_ARCHIVE="$DOWNLOAD_DIR/nuscenes_precomputed"
+PRECOMP_EXTRACT="$DOWNLOAD_DIR/nuscenes_precomputed_extract"
+
+rm -rf "$PRECOMP_EXTRACT"
+mkdir -p "$PRECOMP_EXTRACT"
+
+gdown --continue "https://drive.google.com/uc?id=${PRECOMP_GDRIVE_ID}" -O "$PRECOMP_ARCHIVE"
+
+echo "Downloaded precomputed archive:"
+ls -lh "$PRECOMP_ARCHIVE"
+file "$PRECOMP_ARCHIVE" || true
+
+echo "===== Extract precomputed files ====="
+
+if tar -tzf "$PRECOMP_ARCHIVE" >/dev/null 2>&1; then
+    tar -xzf "$PRECOMP_ARCHIVE" -C "$PRECOMP_EXTRACT"
+elif unzip -t "$PRECOMP_ARCHIVE" >/dev/null 2>&1; then
+    unzip -q "$PRECOMP_ARCHIVE" -d "$PRECOMP_EXTRACT"
+else
+    echo "ERROR: precomputed file is neither .tar.gz nor .zip"
+    file "$PRECOMP_ARCHIVE" || true
+    exit 1
+fi
+
+echo "Precomputed extracted files:"
+find "$PRECOMP_EXTRACT" -maxdepth 4 -type f | sort | sed -n '1,100p'
+find "$PRECOMP_EXTRACT" -maxdepth 4 -type d | sort | sed -n '1,100p'
+
+echo "===== Copy precomputed .pkl/.npy and GT database into local nuScenes root ====="
+
+python - <<'PY'
+from pathlib import Path
+import shutil
+import os
+
+src = Path("downloads/nuscenes_precomputed_extract")
+dst = Path("data/nuscenes/v1.0-trainval")
+
+dst.mkdir(parents=True, exist_ok=True)
+
+# Copy standard precomputed files.
+for p in src.rglob("*"):
+    if p.is_file() and (
+        p.name.endswith(".pkl")
+        or p.name.endswith(".npy")
+        or p.name.endswith(".json")
+    ):
+        target = dst / p.name
+        shutil.copy2(p, target)
+        print("copied file:", p, "->", target)
+
+# Copy GT database directories if present.
+for d in src.rglob("*"):
+    if d.is_dir() and ("gt_database" in d.name or "database" in d.name):
+        target = dst / d.name
+        if target.exists():
+            shutil.rmtree(target)
+        shutil.copytree(d, target)
+        print("copied dir:", d, "->", target)
+
+required = [
+    "nuscenes_infos_10sweeps_train.pkl",
+    "nuscenes_infos_10sweeps_val.pkl",
+    "nuscenes_dbinfos_10sweeps_withvelo.pkl",
+]
+
+missing = [name for name in required if not (dst / name).exists()]
+if missing:
+    print("ERROR: Missing required precomputed files:")
+    for name in missing:
+        print("  ", name)
+    print("Available files in local nuScenes root:")
+    for p in sorted(dst.iterdir()):
+        print("  ", p.name)
+    raise SystemExit(1)
+
+print("Required precomputed files found.")
+PY
 
 echo "===== Dataset check ====="
 
 required_dirs=(
-    "$NUSC_ROOT/v1.0-trainval"
-    "$NUSC_ROOT/maps"
-    "$NUSC_ROOT/samples/LIDAR_TOP"
-    "$NUSC_ROOT/sweeps/LIDAR_TOP"
+    "$LOCAL_NUSC_ROOT/v1.0-trainval"
+    "$LOCAL_NUSC_ROOT/maps"
+    "$LOCAL_NUSC_ROOT/samples/LIDAR_TOP"
+    "$LOCAL_NUSC_ROOT/sweeps/LIDAR_TOP"
 )
 
 for required_dir in "${required_dirs[@]}"; do
     if [[ ! -d "$required_dir" ]]; then
-        echo "ERROR: expected directory was not found: $required_dir"
-        echo "Detected nuScenes root: $FOUND_NUSC_ROOT"
-        echo "Current local symlink:"
-        ls -lah "$LOCAL_NUSC_PARENT" || true
-        echo "Available folders:"
-        find "$FOUND_NUSC_ROOT" -maxdepth 3 -type d 2>/dev/null | sort | sed -n '1,120p'
+        echo "ERROR: expected directory missing: $required_dir"
         exit 1
     fi
 done
 
-find "$NUSC_ROOT" -maxdepth 2 -type d | sort | sed -n '1,50p'
+echo "Precomputed files:"
+ls -lh "$LOCAL_NUSC_ROOT"/*.pkl "$LOCAL_NUSC_ROOT"/*.npy 2>/dev/null || true
 
-echo "Metadata files:"
-find "$NUSC_ROOT/v1.0-trainval" -maxdepth 1 -type f -printf '%f\n' | sort | sed -n '1,20p'
+echo "GT database dirs:"
+find "$LOCAL_NUSC_ROOT" -maxdepth 1 -type d \( -name "*gt_database*" -o -name "*database*" \) -print || true
 
-echo "Map files:"
-find "$NUSC_ROOT/maps" -maxdepth 2 -type f -printf '%P\n' | sort | sed -n '1,20p'
-
-echo "LiDAR samples:"
-find "$NUSC_ROOT/samples/LIDAR_TOP" -maxdepth 1 -type f -printf '%f\n' | sort | sed -n '1,10p'
-
-echo "LiDAR sweeps:"
-find "$NUSC_ROOT/sweeps/LIDAR_TOP" -maxdepth 1 -type f -printf '%f\n' | sort | sed -n '1,10p'
-
-echo "Metadata JSON count: $(find "$NUSC_ROOT/v1.0-trainval" -maxdepth 1 -type f -name '*.json' | wc -l)"
-echo "Map file count:       $(find "$NUSC_ROOT/maps" -type f | wc -l)"
-echo "LiDAR sample count:   $(find "$NUSC_ROOT/samples/LIDAR_TOP" -maxdepth 1 -type f | wc -l)"
-echo "LiDAR sweep count:    $(find "$NUSC_ROOT/sweeps/LIDAR_TOP" -maxdepth 1 -type f | wc -l)"
-rm -f "$NUSC_ROOT"/nuscenes_infos_*.pkl
-rm -f "$NUSC_ROOT"/nuscenes_dbinfos_*.pkl
-rm -f "$NUSC_ROOT"/*.pkl.full_backup
-echo "===== Create nuScenes info files ====="
-
-python -m pcdet.datasets.nuscenes.nuscenes_dataset \
-    --func create_nuscenes_infos \
-    --cfg_file tools/cfgs/dataset_configs/nuscenes_dataset.yaml \
-    --version v1.0-trainval
-
-echo "===== Filter info files to existing part-one files only ====="
-
-python - <<'PY'
-import pickle
-from pathlib import Path
-
-root = Path("data/nuscenes/v1.0-trainval")
-
-def exists_path(path):
-    if path is None:
-        return False
-
-    p = Path(path)
-
-    if p.is_absolute():
-        return p.exists()
-
-    return (root / p).exists()
-
-def filter_info_file(pkl_name):
-    pkl = root / pkl_name
-
-    if not pkl.exists():
-        print("Missing:", pkl)
-        return
-
-    backup = root / (pkl_name + ".full_backup")
-
-    data = pickle.load(open(pkl, "rb"))
-    infos = data["infos"] if isinstance(data, dict) and "infos" in data else data
-
-    kept = []
-    removed = 0
-
-    for info in infos:
-        ok = exists_path(info.get("lidar_path"))
-
-        for sweep in info.get("sweeps", []):
-            spath = sweep.get("lidar_path", sweep.get("data_path", None))
-            if spath is not None and not exists_path(spath):
-                ok = False
-                break
-
-        if ok:
-            kept.append(info)
-        else:
-            removed += 1
-
-    if not backup.exists():
-        backup.write_bytes(pkl.read_bytes())
-
-    if isinstance(data, dict) and "infos" in data:
-        data["infos"] = kept
-        pickle.dump(data, open(pkl, "wb"))
-    else:
-        pickle.dump(kept, open(pkl, "wb"))
-
-    print(pkl_name)
-    print("  original:", len(infos))
-    print("  kept:", len(kept))
-    print("  removed:", removed)
-
-filter_info_file("nuscenes_infos_10sweeps_train.pkl")
-filter_info_file("nuscenes_infos_10sweeps_val.pkl")
-PY
+echo "Dataset preparation finished."
 
 echo "===== Train TransFusion-L LiDAR-only ====="
 
 cd tools
 
-CUDA_VISIBLE_DEVICES=0 python train.py \
-    --cfg_file cfgs/nuscenes_models/transfusion_lidar.yaml \
-    --batch_size 1 \
-    --epochs 30 \
-    --wo_gpu_stat
+
+CUDA_VISIBLE_DEVICES=0 python train.py     --cfg_file cfgs/nuscenes_models/cbgs_voxel0075_res3d_centerpoint.yaml     --batch_size 1     --epochs 30     --wo_gpu_stat
 
 cd ..
 
@@ -459,16 +418,10 @@ mkdir -p h200_results
 cp -r output h200_results/ || true
 cp -r data/nuscenes/v1.0-trainval/*.pkl h200_results/ || true
 
-RESULT_JSON="output/nuscenes_models/transfusion_lidar/default/eval/eval_with_train/epoch_30/val/final_result/data/results_nusc.json"
-
-if [ -f "$RESULT_JSON" ]; then
-    cp "$RESULT_JSON" h200_results/ || true
-else
-    echo "WARNING: results_nusc.json not found at expected path:"
-    echo "$RESULT_JSON"
-    echo "Searching output directory:"
-    find output -name "results_nusc.json" -type f 2>/dev/null | sort || true
+if [ -f output/nuscenes_models/transfusion_lidar/default/eval/epoch_2/val/default/final_result/data/results_nusc.json ]; then
+    cp output/nuscenes_models/transfusion_lidar/default/eval/epoch_2/val/default/final_result/data/results_nusc.json h200_results/ || true
 fi
+
 tar -czf h200_transfusion_part1_results.tar.gz h200_results
 
 echo "DONE: h200_transfusion_part1_results.tar.gz"
